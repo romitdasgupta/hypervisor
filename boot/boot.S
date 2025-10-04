@@ -134,8 +134,10 @@ setup_page_tables:
     
     /* Identity map first 2MB using 2MB pages */
     movl $pdt, %edi
-    movl $0x83, %eax  /* Present + Writable + Huge Page */
-    movl $512, %ecx
+    movl $0x83, (%edi)      /* Map first 2MB at address 0x0 */
+    addl $8, %edi
+    movl $0x200083, %eax    /* Present + Writable + Huge Page, starting at 2MB */
+    movl $511, %ecx         /* 511 more entries (512 total - 1) */
 1:
     movl %eax, (%edi)
     addl $0x200000, %eax
