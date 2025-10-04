@@ -27,6 +27,7 @@ stack_bottom:
 stack_top:
 
 .section .text
+.code32
 .global _start
 .type _start, @function
 
@@ -38,8 +39,8 @@ _start:
     mov $stack_top, %esp
     
     /* Save multiboot info */
-    push %ebx  /* Multiboot info structure */
-    push %eax  /* Multiboot magic */
+    pushl %ebx  /* Multiboot info structure */
+    pushl %eax  /* Multiboot magic */
     
     /* Check CPUID support */
     call check_cpuid
@@ -55,90 +56,90 @@ _start:
     call setup_page_tables
     
     /* Enable PAE */
-    mov %cr4, %eax
-    or $0x20, %eax
-    mov %eax, %cr4
+    movl %cr4, %eax
+    orl $0x20, %eax
+    movl %eax, %cr4
     
     /* Load PML4 */
-    mov $pml4, %eax
-    mov %eax, %cr3
+    movl $pml4, %eax
+    movl %eax, %cr3
     
     /* Enable long mode in EFER MSR */
-    mov $0xC0000080, %ecx
+    movl $0xC0000080, %ecx
     rdmsr
-    or $0x100, %eax
+    orl $0x100, %eax
     wrmsr
     
     /* Enable paging and protected mode */
-    mov %cr0, %eax
-    or $0x80000001, %eax
-    mov %eax, %cr0
+    movl %cr0, %eax
+    orl $0x80000001, %eax
+    movl %eax, %cr0
     
     /* Load 64-bit GDT */
     lgdt gdt64_pointer
     
     /* Far jump to 64-bit code */
-    ljmp $0x08, $long_mode_start
+    ljmpl $0x08, $long_mode_start
 
 check_cpuid:
     pushfl
-    pop %eax
-    mov %eax, %ecx
-    xor $0x200000, %eax
-    push %eax
+    popl %eax
+    movl %eax, %ecx
+    xorl $0x200000, %eax
+    pushl %eax
     popfl
     pushfl
-    pop %eax
-    push %ecx
+    popl %eax
+    pushl %ecx
     popfl
-    xor %ecx, %eax
+    xorl %ecx, %eax
     ret
 
 check_long_mode:
-    mov $0x80000000, %eax
+    movl $0x80000000, %eax
     cpuid
-    cmp $0x80000001, %eax
+    cmpl $0x80000001, %eax
     jb no_long_mode_support
     
-    mov $0x80000001, %eax
+    movl $0x80000001, %eax
     cpuid
-    test $(1 << 29), %edx
+    testl $(1 << 29), %edx
     jz no_long_mode_support
     
-    mov $1, %eax
+    movl $1, %eax
     ret
 
 no_long_mode_support:
-    xor %eax, %eax
+    xorl %eax, %eax
     ret
 
 setup_page_tables:
     /* Clear page tables */
-    mov $pml4, %edi
-    mov %edi, %cr3
-    xor %eax, %eax
-    mov $4096, %ecx
+    movl $pml4, %edi
+    movl %edi, %cr3
+    xorl %eax, %eax
+    movl $4096, %ecx
     rep stosl
-    mov %cr3, %edi
+    movl %cr3, %edi
     
     /* PML4[0] -> PDPT */
-    mov $pdpt, %eax
-    or $3, %eax  /* Present + Writable */
-    mov %eax, pml4
+    movl $pdpt, %eax
+    orl $3, %eax  /* Present + Writable */
+    movl %eax, pml4
     
     /* PDPT[0] -> PDT */
-    mov $pdt, %eax
-    or $3, %eax
-    mov %eax, pdpt
+    movl $pdt, %eax
+    orl $3, %eax
+    movl %eax, pdpt
     
     /* Identity map first 2MB using 2MB pages */
-    mov $pdt, %edi
-    mov $0x83, %eax  /* Present + Writable + Huge Page */
-    mov $512, %ecx
+    movl $pdt, %edi
+    movl $0x83, %eax  /* Present + Writable + Huge Page */
+    movl $512, %ecx
 1:
-    mov %eax, (%edi)
-    add $0x200000, %eax
-    add $8, %edi
+    movl %eax, (%edi)
+    addl $0x200000, %eax
+    addl $8, %edi
     loop 1b
     
     ret
@@ -153,16 +154,16 @@ no_long_mode:
 .code64
 long_mode_start:
     /* Clear segment registers */
-    mov $0x10, %ax
-    mov %ax, %ds
-    mov %ax, %es
-    mov %ax, %fs
-    mov %ax, %gs
-    mov %ax, %ss
+    movw $0x10, %ax
+    movw %ax, %ds
+    movw %ax, %es
+    movw %ax, %fs
+    movw %ax, %gs
+    movw %ax, %ss
     
     /* Restore multiboot info */
-    pop %rdi  /* multiboot magic */
-    pop %rsi  /* multiboot info */
+    popq %rdi  /* multiboot magic */
+    popq %rsi  /* multiboot info */
     
     /* Call C++ kernel main */
     call kernel_main
@@ -191,3 +192,6 @@ pdpt:
     .skip 4096
 pdt:
     .skip 4096
+
+/* Mark stack as non-executable */
+.section .note.GNU-stack,"",@progbits

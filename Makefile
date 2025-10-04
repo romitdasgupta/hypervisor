@@ -1,13 +1,13 @@
 # Toolchain
-AS = nasm
+AS = as
 CXX = g++
 LD = ld
 
 # Flags
-ASFLAGS = -f elf64
+ASFLAGS = --64
 CXXFLAGS = -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti \
            -nostdlib -nostdinc -nostdinc++ -mno-red-zone -mcmodel=kernel \
-           -fno-stack-protector -Iinclude
+           -fno-stack-protector -fno-pic -Iinclude
 LDFLAGS = -n -T linker.ld -nostdlib
 
 # Directories
@@ -64,7 +64,7 @@ iso: $(KERNEL)
 run: iso
 	@echo "Starting QEMU..."
 	@qemu-system-x86_64 -cdrom $(ISO) -m 512M -cpu host -enable-kvm \
-		-serial stdio -d int,cpu_reset -no-reboot -no-shutdown
+		-serial stdio -d int,cpu_reset -no-reboot -no-shutdown 
 
 debug: iso
 	@echo "Starting QEMU with GDB support..."

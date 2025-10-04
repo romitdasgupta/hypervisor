@@ -47,7 +47,7 @@ void VGA::puts(const char* str) {
 
 void VGA::put_hex(uint64_t value) {
     const char hex_chars[] = "0123456789ABCDEF";
-    char buffer[18];
+    char buffer[19];  // "0x" + 16 hex digits + null terminator
     buffer[0] = '0';
     buffer[1] = 'x';
     

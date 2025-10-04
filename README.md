@@ -45,6 +45,7 @@ sudo apt-get install -y \
     grub-pc-bin \
     grub-common \
     xorriso \
+    mtools \
     qemu-system-x86 \
     qemu-kvm \
     make
@@ -68,6 +69,7 @@ sudo dnf install -y \
     grub2-tools \
     grub2-pc-modules \
     xorriso \
+    mtools \
     qemu-system-x86 \
     qemu-kvm
 
@@ -87,6 +89,7 @@ sudo pacman -S --needed \
     nasm \
     grub \
     xorriso \
+    mtools \
     qemu-system-x86 \
     qemu-desktop
 
