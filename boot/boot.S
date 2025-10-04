@@ -2,10 +2,12 @@
 
 .set MAGIC,    0xE85250D6
 .set ARCH,     0  /* i386 (protected mode) */
-.set HEADER_LEN, (multiboot_end - multiboot_start)
+/* Header length: magic(4) + arch(4) + header_len(4) + checksum(4) + end_tag(8) = 24 */
+.set HEADER_LEN, 24
 .set CHECKSUM, -(MAGIC + ARCH + HEADER_LEN)
 
-.section .multiboot
+/* Multiboot header at the very beginning of .text section */
+.section .text
 .align 8
 multiboot_start:
     .long MAGIC
@@ -26,7 +28,6 @@ stack_bottom:
     .skip 16384  /* 16 KiB stack */
 stack_top:
 
-.section .text
 .code32
 .global _start
 .type _start, @function
@@ -114,37 +115,37 @@ no_long_mode_support:
     ret
 
 setup_page_tables:
-    /* Clear page tables */
-    movl $pml4, %edi
-    movl %edi, %cr3
-    xorl %eax, %eax
-    movl $4096, %ecx
-    rep stosl
-    movl %cr3, %edi
-    
-    /* PML4[0] -> PDPT */
-    movl $pdpt, %eax
-    orl $3, %eax  /* Present + Writable */
-    movl %eax, pml4
-    
-    /* PDPT[0] -> PDT */
-    movl $pdt, %eax
-    orl $3, %eax
-    movl %eax, pdpt
-    
-    /* Identity map first 2MB using 2MB pages */
-    movl $pdt, %edi
-    movl $0x83, (%edi)      /* Map first 2MB at address 0x0 */
-    addl $8, %edi
-    movl $0x200083, %eax    /* Present + Writable + Huge Page, starting at 2MB */
-    movl $511, %ecx         /* 511 more entries (512 total - 1) */
+	/* Clear page tables */
+	movl $pml4, %edi
+	movl %edi, %cr3
+	xorl %eax, %eax
+	movl $4096, %ecx
+	rep stosl
+	movl %cr3, %edi
+
+	/* PML4[0] -> PDPT */
+	movl $pdpt, %eax
+	orl $3, %eax			/* Present + Writable */
+	movl %eax, pml4
+
+	/* PDPT[0] -> PDT */
+	movl $pdt, %eax
+	orl $3, %eax
+	movl %eax, pdpt
+
+	/* Identity map first 2MB using 2MB pages */
+	movl $pdt, %edi
+	movl $0x83, (%edi)		/* Map first 2MB at address 0x0 */
+	addl $8, %edi
+	movl $0x200083, %eax		/* Present + Writable + Huge Page, starting at 2MB */
+	movl $511, %ecx			/* 511 more entries (512 total - 1) */
 1:
-    movl %eax, (%edi)
-    addl $0x200000, %eax
-    addl $8, %edi
-    loop 1b
-    
-    ret
+	movl %eax, (%edi)
+	addl $0x200000, %eax
+	addl $8, %edi
+	loop 1b
+
+	ret
 
 no_cpuid:
 no_long_mode:
@@ -162,7 +163,14 @@ long_mode_start:
     movw %ax, %fs
     movw %ax, %gs
     movw %ax, %ss
-    
+
+    /* Clear BSS section */
+    movq $_bss_start, %rdi
+    movq $_bss_end, %rcx
+    subq %rdi, %rcx
+    xorq %rax, %rax
+    rep stosb
+
     /* Restore multiboot info */
     popq %rdi  /* multiboot magic */
     popq %rsi  /* multiboot info */

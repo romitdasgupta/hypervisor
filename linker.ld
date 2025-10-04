@@ -2,13 +2,16 @@ ENTRY(_start)
 
 SECTIONS
 {
-    /* Kernel starts at 1MB physical address */
-    . = 1M;
+    /* Multiboot header at the beginning of the file */
+    . = 0;
 
-    .boot :
+    .multiboot :
     {
         *(.multiboot)
     }
+
+    /* Kernel code and data starting at 1MB physical address */
+    . = 1M;
 
     .text ALIGN(4K) : AT(ADDR(.text))
     {
@@ -28,12 +31,14 @@ SECTIONS
         *(.data.*)
     }
 
+    _bss_start = .;
     .bss ALIGN(4K) : AT(ADDR(.bss))
     {
         *(COMMON)
         *(.bss)
         *(.bss.*)
     }
+    _bss_end = .;
 
     /* Discard unnecessary sections */
     /DISCARD/ :

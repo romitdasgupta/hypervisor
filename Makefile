@@ -4,10 +4,10 @@ CXX = g++
 LD = ld
 
 # Flags
-ASFLAGS = --64
+# ASFLAGS = --32
 CXXFLAGS = -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti \
            -nostdlib -nostdinc -nostdinc++ -mno-red-zone -mcmodel=kernel \
-           -fno-stack-protector -fno-pic -Iinclude
+           -fno-stack-protector -fno-pic -Iinclude -g
 LDFLAGS = -n -T linker.ld -nostdlib
 
 # Directories
@@ -26,51 +26,60 @@ CXX_OBJECTS = $(patsubst $(SRC_DIR)/%.cpp, $(BUILD_DIR)/%.o, $(CXX_SOURCES))
 OBJECTS = $(ASM_OBJECTS) $(CXX_OBJECTS)
 
 # Output
-KERNEL = $(BUILD_DIR)/hypervisor.elf
+KERNEL_ELF = $(BUILD_DIR)/hypervisor.elf
+KERNEL_BIN = $(BUILD_DIR)/hypervisor.bin
 ISO = hypervisor.iso
 
 .PHONY: all clean run iso dirs
 
-all: dirs $(KERNEL)
+all: dirs $(KERNEL_BIN)
 
 dirs:
 	@mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/%.o: $(BOOT_DIR)/%.S
+$(BUILD_DIR)/%.o: $(BOOT_DIR)/%.S | dirs
 	@echo "AS    $<"
 	@$(AS) $(ASFLAGS) $< -o $@
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | dirs
 	@echo "CXX   $<"
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(KERNEL): $(OBJECTS)
+$(KERNEL_ELF): $(OBJECTS)
 	@echo "LD    $@"
 	@$(LD) $(LDFLAGS) -o $@ $(OBJECTS)
-	@echo "Build complete: $(KERNEL)"
+	@echo "Build complete: $(KERNEL_ELF)"
 
-iso: $(KERNEL)
-	@mkdir -p $(ISO_DIR)/boot/grub
-	@cp $(KERNEL) $(ISO_DIR)/boot/
-	@echo 'set timeout=0' > $(ISO_DIR)/boot/grub/grub.cfg
-	@echo 'set default=0' >> $(ISO_DIR)/boot/grub/grub.cfg
-	@echo 'menuentry "Hypervisor" {' >> $(ISO_DIR)/boot/grub/grub.cfg
-	@echo '    multiboot2 /boot/hypervisor.elf' >> $(ISO_DIR)/boot/grub/grub.cfg
-	@echo '    boot' >> $(ISO_DIR)/boot/grub/grub.cfg
-	@echo '}' >> $(ISO_DIR)/boot/grub/grub.cfg
+$(KERNEL_BIN): $(KERNEL_ELF)
+	@echo "OBJCOPY $@"
+	@objcopy -O binary $< $@
+	@echo "Binary created: $(KERNEL_BIN)"
+
+iso: $(KERNEL_ELF)
+	@mkdir -p $(ISO_DIR)/boot
+	@cp $(KERNEL_ELF) $(ISO_DIR)/boot/hypervisor.elf
+	@echo 'set timeout=0' > $(ISO_DIR)/boot/grub.cfg
+	@echo 'set default=0' >> $(ISO_DIR)/boot/grub.cfg
+	@echo 'menuentry "Hypervisor" {' >> $(ISO_DIR)/boot/grub.cfg
+	@echo '    multiboot2 /boot/hypervisor.elf' >> $(ISO_DIR)/boot/grub.cfg
+	@echo '    boot' >> $(ISO_DIR)/boot/grub.cfg
+	@echo '}' >> $(ISO_DIR)/boot/grub.cfg
 	@grub-mkrescue -o $(ISO) $(ISO_DIR) 2>/dev/null
 	@echo "ISO created: $(ISO)"
 
 run: iso
 	@echo "Starting QEMU..."
 	@qemu-system-x86_64 -cdrom $(ISO) -m 512M -cpu host -enable-kvm \
-		-serial stdio -d int,cpu_reset -no-reboot -no-shutdown 
+		-boot d -d int,cpu_reset -no-reboot -no-shutdown -nographic 
 
-debug: iso
+debug-iso: iso
 	@echo "Starting QEMU with GDB support..."
 	@qemu-system-x86_64 -cdrom $(ISO) -m 512M -cpu host -enable-kvm \
-		-serial stdio -s -S
+		-boot d -s -S -nographic
 
+debug: $(KERNEL_ELF)
+	@echo "Starting QEMU with GDB support..."
+	@qemu-system-x86_64 -kernel $(KERNEL_ELF) -m 512M -cpu host -enable-kvm  -nographic
 clean:
 	@rm -rf $(BUILD_DIR) $(ISO_DIR) $(ISO) *.log
 	@echo "Clean complete"
