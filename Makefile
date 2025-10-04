@@ -72,7 +72,7 @@ debug: iso
 		-serial stdio -s -S
 
 clean:
-	@rm -rf $(BUILD_DIR) $(ISO_DIR) $(ISO)
+	@rm -rf $(BUILD_DIR) $(ISO_DIR) $(ISO) *.log
 	@echo "Clean complete"
 
 info:
