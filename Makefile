@@ -4,10 +4,19 @@ CXX = g++
 LD = ld
 
 # Flags
-# ASFLAGS = --32
+ASFLAGS = --64
 CXXFLAGS = -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti \
            -nostdlib -nostdinc -nostdinc++ -mno-red-zone -mcmodel=kernel \
+					 -fcf-protection=none \
            -fno-stack-protector -fno-pic -Iinclude -g
+
+CXXFLAGS = -O2 -Wall -Wextra -fno-exceptions -ffreestanding -fno-builtin \
+				   -fno-builtin-memset -fno-builtin-memcpy \
+					 -fcf-protection=none  -fno-pic \
+					 -fno-stack-protector  -fno-rtti -nostdlib -nostartfiles \
+					 -mno-red-zone -mcmodel=kernel -mno-80387 -mno-mmx \
+					 -fno-tree-vectorize -fno-tree-slp-vectorize -Iinclude -g
+
 LDFLAGS = -n -T linker.ld -nostdlib
 
 # Directories
@@ -55,33 +64,40 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 	@objcopy -O binary $< $@
 	@echo "Binary created: $(KERNEL_BIN)"
 
+
 iso: $(KERNEL_ELF)
-	@mkdir -p $(ISO_DIR)/boot
+	@mkdir -p $(ISO_DIR)/boot/grub
 	@cp $(KERNEL_ELF) $(ISO_DIR)/boot/hypervisor.elf
-	@echo 'set timeout=0' > $(ISO_DIR)/boot/grub.cfg
-	@echo 'set default=0' >> $(ISO_DIR)/boot/grub.cfg
-	@echo 'menuentry "Hypervisor" {' >> $(ISO_DIR)/boot/grub.cfg
-	@echo '    multiboot2 /boot/hypervisor.elf' >> $(ISO_DIR)/boot/grub.cfg
-	@echo '    boot' >> $(ISO_DIR)/boot/grub.cfg
-	@echo '}' >> $(ISO_DIR)/boot/grub.cfg
+	@echo 'set timeout=5' > $(ISO_DIR)/boot/grub/grub.cfg
+	@echo 'set default=0' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo 'menuentry "Hypervisor" {' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '    multiboot2 /boot/hypervisor.elf' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '    boot' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '}' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo 'menuentry "Hypervisor Debug" {' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '    echo "Loading hypervisor..."' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '    multiboot2 /boot/hypervisor.elf' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '    echo "Booting..."' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '    boot' >> $(ISO_DIR)/boot/grub/grub.cfg
+	@echo '}' >> $(ISO_DIR)/boot/grub/grub.cfg
 	@grub-mkrescue -o $(ISO) $(ISO_DIR) 2>/dev/null
 	@echo "ISO created: $(ISO)"
 
 run: iso
 	@echo "Starting QEMU..."
 	@qemu-system-x86_64 -cdrom $(ISO) -m 512M -cpu host -enable-kvm \
-		-boot d -d int,cpu_reset -no-reboot -no-shutdown -nographic 
+		-boot d  -d in_asm,int,cpu_reset,guest_errors -nographic -D qemu.log
 
 debug-iso: iso
 	@echo "Starting QEMU with GDB support..."
 	@qemu-system-x86_64 -cdrom $(ISO) -m 512M -cpu host -enable-kvm \
-		-boot d -s -S -nographic
+		-boot d -s -S -nographic -D qemu.log
 
 debug: $(KERNEL_ELF)
 	@echo "Starting QEMU with GDB support..."
 	@qemu-system-x86_64 -kernel $(KERNEL_ELF) -m 512M -cpu host -enable-kvm  -nographic
 clean:
-	@rm -rf $(BUILD_DIR) $(ISO_DIR) $(ISO) *.log
+	@rm -rf $(BUILD_DIR) $(ISO_DIR) $(ISO) *.log *.bin
 	@echo "Clean complete"
 
 info:

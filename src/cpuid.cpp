@@ -1,5 +1,6 @@
 #include "cpuid.h"
 #include "vga.h"
+#include "serial.h"
 
 CPUIDResult CPUID::query(uint32_t leaf, uint32_t subleaf) {
     CPUIDResult result;

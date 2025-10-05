@@ -6,8 +6,8 @@
 .set HEADER_LEN, 24
 .set CHECKSUM, -(MAGIC + ARCH + HEADER_LEN)
 
-/* Multiboot header at the very beginning of .text section */
-.section .text
+/* Multiboot header at the very beginning of .multiboot section */
+.section .multiboot, "a"
 .align 8
 multiboot_start:
     .long MAGIC
@@ -22,12 +22,14 @@ multiboot_start:
     .long 8
 multiboot_end:
 
-.section .bss
+/* Dedicated stack section (not in .bss, won't be cleared) */
+.section .stack, "aw", @nobits
 .align 16
 stack_bottom:
     .skip 16384  /* 16 KiB stack */
 stack_top:
 
+.section .text
 .code32
 .global _start
 .type _start, @function
@@ -71,13 +73,13 @@ _start:
     orl $0x100, %eax
     wrmsr
     
+    /* Load 64-bit GDT before enabling paging */
+    lgdt gdt64_pointer
+
     /* Enable paging and protected mode */
     movl %cr0, %eax
     orl $0x80000001, %eax
     movl %eax, %cr0
-    
-    /* Load 64-bit GDT */
-    lgdt gdt64_pointer
     
     /* Far jump to 64-bit code */
     ljmpl $0x08, $long_mode_start
@@ -164,17 +166,23 @@ long_mode_start:
     movw %ax, %gs
     movw %ax, %ss
 
-    /* Clear BSS section */
+    /* Clear BSS section  */
+    cld                     /* Good practice before rep stosx */
     movq $_bss_start, %rdi
     movq $_bss_end, %rcx
     subq %rdi, %rcx
     xorq %rax, %rax
     rep stosb
 
-    /* Restore multiboot info */
-    popq %rdi  /* multiboot magic */
-    popq %rsi  /* multiboot info */
-    
+
+    /* Restore multiboot info (pop as 32-bit, extend to 64-bit) */
+    xorq %rdi, %rdi
+    xorq %rsi, %rsi
+    movl (%rsp), %edi    /* multiboot magic (32-bit) */
+    movl 4(%rsp), %esi   /* multiboot info (32-bit) */
+
+    movq $stack_top, %rsp /* reset the stack */
+
     /* Call C++ kernel main */
     call kernel_main
     
@@ -188,13 +196,14 @@ long_mode_start:
 .align 16
 gdt64:
     .quad 0                      /* Null descriptor */
-    .quad 0x00AF9A000000FFFF     /* Code segment */
-    .quad 0x00AF92000000FFFF     /* Data segment */
+    .quad 0x00209A0000000000     /* Code segment: L=1, P=1, S=1, E=1, RW=1 */
+    .quad 0x0000920000000000     /* Data segment: P=1, S=1, RW=1 */
 gdt64_pointer:
     .word . - gdt64 - 1
     .quad gdt64
 
-.section .bss
+/* Page tables in separate section (not cleared) */
+.section .page_tables, "aw", @nobits
 .align 4096
 pml4:
     .skip 4096
@@ -202,6 +211,10 @@ pdpt:
     .skip 4096
 pdt:
     .skip 4096
+
+/* BSS section for uninitialized data */
+.section .bss
+.align 16
 
 /* Mark stack as non-executable */
 .section .note.GNU-stack,"",@progbits

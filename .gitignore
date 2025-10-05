@@ -1,4 +1,5 @@
 build/
 *.iso
+*.log
 *.bin
 isodir/

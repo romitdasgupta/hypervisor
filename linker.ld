@@ -2,37 +2,49 @@ ENTRY(_start)
 
 SECTIONS
 {
-    /* Multiboot header at the beginning of the file */
-    . = 0;
-
-    .multiboot :
-    {
-        *(.multiboot)
-    }
-
     /* Kernel code and data starting at 1MB physical address */
     . = 1M;
 
-    .text ALIGN(4K) : AT(ADDR(.text))
+    /* Multiboot header must be first in the loadable segment */
+    .multiboot ALIGN(4):
+    {
+        KEEP(*(.multiboot))
+        KEEP(*(.multiboot_header))
+    }
+
+    .text ALIGN(4K) :
     {
         *(.text)
         *(.text.*)
     }
 
-    .rodata ALIGN(4K) : AT(ADDR(.rodata))
+    .rodata ALIGN(4K) :
     {
         *(.rodata)
         *(.rodata.*)
     }
 
-    .data ALIGN(4K) : AT(ADDR(.data))
+    .data ALIGN(4K) :
     {
         *(.data)
         *(.data.*)
     }
 
+    /* Stack section (separate from BSS, won't be cleared) */
+    .stack ALIGN(4K) :
+    {
+        *(.stack)
+    }
+
+    /* Page tables section (separate from BSS, won't be cleared) */
+    .page_tables ALIGN(4K) :
+    {
+        *(.page_tables)
+    }
+
+    /* BSS section for uninitialized data that should be zeroed */
     _bss_start = .;
-    .bss ALIGN(4K) : AT(ADDR(.bss))
+    .bss ALIGN(4K) :
     {
         *(COMMON)
         *(.bss)
