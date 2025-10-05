@@ -30,6 +30,15 @@ SECTIONS
         *(.data.*)
     }
 
+    /* C++ constructor tables */
+    .init_array ALIGN(8) :
+    {
+        __init_array_start = .;
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*)))
+        KEEP(*(.init_array))
+        __init_array_end = .;
+    }
+
     /* Stack section (separate from BSS, won't be cleared) */
     .stack ALIGN(4K) :
     {

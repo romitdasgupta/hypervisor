@@ -183,6 +183,17 @@ long_mode_start:
 
     movq $stack_top, %rsp /* reset the stack */
 
+    /* Save multiboot parameters before calling constructors */
+    pushq %rsi
+    pushq %rdi
+
+    /* Call C++ global constructors */
+    call call_constructors
+
+    /* Restore multiboot parameters */
+    popq %rdi
+    popq %rsi
+
     /* Call C++ kernel main */
     call kernel_main
     
@@ -191,6 +202,19 @@ long_mode_start:
 1:
     hlt
     jmp 1b
+
+call_constructors:
+    pushq %rbx
+    movq $__init_array_start, %rbx
+1:
+    cmpq $__init_array_end, %rbx
+    je 2f
+    call *(%rbx)
+    addq $8, %rbx
+    jmp 1b
+2:
+    popq %rbx
+    ret
 
 .section .data
 .align 16
@@ -215,6 +239,7 @@ pdt:
 /* BSS section for uninitialized data */
 .section .bss
 .align 16
+
 
 /* Mark stack as non-executable */
 .section .note.GNU-stack,"",@progbits
