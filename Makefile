@@ -1,14 +1,24 @@
 # Toolchain
-AS = as
 CXX = g++
 LD = ld
 
-# Flags
+# Host detection
+UNAME_S := $(shell uname -s)
+
+# Assembler setup
+AS = as
 ASFLAGS = --64
-CXXFLAGS = -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti \
-           -nostdlib -nostdinc -nostdinc++ -mno-red-zone -mcmodel=kernel \
-					 -fcf-protection=none \
-           -fno-stack-protector -fno-pic -Iinclude -g
+
+ifeq ($(UNAME_S),Darwin)
+AS = clang
+ASFLAGS = -c -arch x86_64
+endif
+
+# Flags
+# CXXFLAGS = -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti \
+#            -nostdlib -nostdinc -nostdinc++ -mno-red-zone -mcmodel=kernel \
+# 					 -fcf-protection=none \
+#            -fno-stack-protector -fno-pic -Iinclude -g
 
 CXXFLAGS = -O2 -Wall -Wextra -fno-exceptions -ffreestanding -fno-builtin \
 				   -fno-builtin-memset -fno-builtin-memcpy \

@@ -51,6 +51,12 @@ SECTIONS
         *(.page_tables)
     }
 
+    /* VMX regions section (VMXON and VMCS structures, won't be cleared) */
+    .vmx_regions ALIGN(4K) :
+    {
+        *(.vmx_regions)
+    }
+
     /* BSS section for uninitialized data that should be zeroed */
     _bss_start = .;
     .bss ALIGN(4K) :
