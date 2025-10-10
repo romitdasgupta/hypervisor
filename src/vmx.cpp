@@ -365,6 +365,12 @@ bool VMX::enable() {
 // VMCS Management Functions
 // ============================================================================
 
+static uint64_t vmcs_read(uint64_t field) {
+  uint64_t value = 0;
+  asm volatile("vmread %1, %0" : "=r"(value) : "r"(field) : "cc");
+  return value;
+}
+
 static bool vmcs_write(uint64_t field, uint64_t value) {
   uint8_t error = 0;
   asm volatile("vmwrite %1, %2\n\t"
@@ -372,13 +378,29 @@ static bool vmcs_write(uint64_t field, uint64_t value) {
                : "=r"(error)
                : "r"(value), "r"(field)
                : "cc");
-  return (error == 0);
-}
 
-static uint64_t vmcs_read(uint64_t field) {
-  uint64_t value = 0;
-  asm volatile("vmread %1, %0" : "=r"(value) : "r"(field) : "cc");
-  return value;
+  if (error) {
+    // VMWRITE failed, read the VM-instruction error field for details
+    uint64_t vm_error = vmcs_read(VM_INSTRUCTION_ERROR);
+    vga.set_color(VGA::LIGHT_RED, VGA::BLACK);
+    vga.puts("    VMCS write failed! Field: 0x");
+    vga.put_hex(field);
+    vga.puts(", Value: 0x");
+    vga.put_hex(value);
+    vga.puts(", Error: 0x");
+    vga.put_hex(vm_error);
+    vga.puts("\n");
+    serial.puts("    VMCS write failed! Field: 0x");
+    serial.put_hex64(field);
+    serial.puts(", Value: 0x");
+    serial.put_hex64(value);
+    serial.puts(", Error: 0x");
+    serial.put_hex64(vm_error);
+    serial.puts("\n");
+    vga.set_color(VGA::WHITE, VGA::BLACK);
+  }
+
+  return (error == 0);
 }
 
 static bool vmcs_init() {
@@ -934,6 +956,26 @@ static bool setup_vmcs() {
   if (!vmcs_write(HOST_GDTR_BASE, gdtr.base))
     return false;
   if (!vmcs_write(HOST_IDTR_BASE, idtr.base))
+    return false;
+
+  // Host SYSENTER MSRs (required when VM-exit controls bit 15 is set)
+  // Read current values from MSRs
+  uint64_t sysenter_cs = read_msr(0x174);  // IA32_SYSENTER_CS
+  uint64_t sysenter_esp = read_msr(0x175); // IA32_SYSENTER_ESP
+  uint64_t sysenter_eip = read_msr(0x176); // IA32_SYSENTER_EIP
+
+  vga.puts("    Host SYSENTER_CS: 0x");
+  serial.puts("    Host SYSENTER_CS: 0x");
+  vga.put_hex(sysenter_cs);
+  serial.put_hex64(sysenter_cs);
+  vga.puts("\n");
+  serial.puts("\n");
+
+  if (!vmcs_write(HOST_IA32_SYSENTER_CS, sysenter_cs))
+    return false;
+  if (!vmcs_write(HOST_IA32_SYSENTER_ESP, sysenter_esp))
+    return false;
+  if (!vmcs_write(HOST_IA32_SYSENTER_EIP, sysenter_eip))
     return false;
 
   // Host TR base (computed from GDT)

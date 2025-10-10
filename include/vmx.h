@@ -105,6 +105,11 @@ constexpr uint64_t HOST_TR_BASE = 0x6C0A;
 constexpr uint64_t HOST_GDTR_BASE = 0x6C0C;
 constexpr uint64_t HOST_IDTR_BASE = 0x6C0E;
 
+// Host SYSENTER MSRs
+constexpr uint64_t HOST_IA32_SYSENTER_CS = 0x4C00;
+constexpr uint64_t HOST_IA32_SYSENTER_ESP = 0x6C10;
+constexpr uint64_t HOST_IA32_SYSENTER_EIP = 0x6C12;
+
 // Host registers (natural-width)
 constexpr uint64_t HOST_RSP = 0x6C14;
 constexpr uint64_t HOST_RIP = 0x6C16;
