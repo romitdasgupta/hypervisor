@@ -24,7 +24,7 @@ CXXFLAGS = -O2 -Wall -Wextra -fno-exceptions -ffreestanding -fno-builtin \
 				   -fno-builtin-memset -fno-builtin-memcpy \
 					 -fcf-protection=none  -fno-pic \
 					 -fno-stack-protector  -fno-rtti -nostdlib -nostartfiles \
-					 -mno-red-zone -mcmodel=kernel -mno-80387 -mno-mmx -mno-sse -mno-sse2 \
+					 -mno-red-zone -mcmodel=kernel -mno-80387 -mno-mmx -msse -msse2 \
 					 -fno-tree-vectorize -fno-tree-slp-vectorize -Iinclude -g
 
 LDFLAGS = -n -T linker.ld -nostdlib
