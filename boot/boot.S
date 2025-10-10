@@ -175,6 +175,20 @@ long_mode_start:
     movw %ax, %gs
     movw %ax, %ss
 
+    /* Set up TSS descriptor with actual TSS address */
+    movq $tss, %rax
+    movw %ax, (gdt64 + 24 + 2)      /* Base (15:0) */
+    shrq $16, %rax
+    movb %al, (gdt64 + 24 + 4)      /* Base (23:16) */
+    shrq $8, %rax
+    movb %al, (gdt64 + 24 + 7)      /* Base (31:24) */
+    shrq $8, %rax
+    movl %eax, (gdt64 + 24 + 8)     /* Base (63:32) */
+
+    /* Load Task Register with TSS selector (0x18 = index 3) */
+    movw $0x18, %ax
+    ltr %ax
+
     /* Enable SSE */
     movq %cr0, %rax
     orq $0x2, %rax      /* Set CR0.MP */
@@ -261,9 +275,38 @@ gdt64:
     .quad 0                      /* Null descriptor */
     .quad 0x00209A0000000000     /* Code segment: L=1, P=1, S=1, E=1, RW=1 */
     .quad 0x0000920000000000     /* Data segment: P=1, S=1, RW=1 */
+    /* TSS descriptor (16 bytes for 64-bit TSS) */
+    .word tss_end - tss - 1      /* Limit (15:0) */
+    .word 0                      /* Base (15:0) - will be filled at runtime */
+    .byte 0                      /* Base (23:16) - will be filled at runtime */
+    .byte 0x89                   /* P=1, DPL=0, Type=0x9 (available 64-bit TSS) */
+    .byte 0x00                   /* Limit (19:16) + flags */
+    .byte 0                      /* Base (31:24) - will be filled at runtime */
+    .long 0                      /* Base (63:32) - will be filled at runtime */
+    .long 0                      /* Reserved */
 gdt64_pointer:
     .word . - gdt64 - 1
     .quad gdt64
+
+/* Minimal TSS structure for 64-bit mode */
+.align 16
+tss:
+    .long 0                      /* Reserved */
+    .quad 0                      /* RSP0 */
+    .quad 0                      /* RSP1 */
+    .quad 0                      /* RSP2 */
+    .quad 0                      /* Reserved */
+    .quad 0                      /* IST1 */
+    .quad 0                      /* IST2 */
+    .quad 0                      /* IST3 */
+    .quad 0                      /* IST4 */
+    .quad 0                      /* IST5 */
+    .quad 0                      /* IST6 */
+    .quad 0                      /* IST7 */
+    .quad 0                      /* Reserved */
+    .word 0                      /* Reserved */
+    .word 0                      /* I/O Map Base Address */
+tss_end:
 
 /* Page tables in separate section (not cleared) */
 .section .page_tables, "aw", @nobits
