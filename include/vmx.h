@@ -3,7 +3,8 @@
 
 #include "types.h"
 
-// Intel VMX (Virtual Machine Extensions) implementation - Phase 1: Basic VMX initialization and VM entry/exit
+// Intel VMX (Virtual Machine Extensions) implementation - Phase 1: Basic VMX
+// initialization and VM entry/exit
 
 // MSR addresses for VMX
 constexpr uint32_t IA32_FEATURE_CONTROL = 0x3A;
@@ -57,6 +58,11 @@ constexpr uint64_t GUEST_FS_ACCESS_RIGHTS = 0x481C;
 constexpr uint64_t GUEST_GS_ACCESS_RIGHTS = 0x481E;
 constexpr uint64_t GUEST_LDTR_ACCESS_RIGHTS = 0x4820;
 constexpr uint64_t GUEST_TR_ACCESS_RIGHTS = 0x4822;
+constexpr uint64_t GUEST_INTERRUPTIBILITY_STATE = 0x4824;
+constexpr uint64_t GUEST_ACTIVITY_STATE = 0x4826;
+
+// Guest state fields - 64-bit (natural-width)
+constexpr uint64_t GUEST_PENDING_DBG_EXCEPTIONS = 0x6822;
 
 // Guest state fields - Natural-width (64-bit) bases and registers
 constexpr uint64_t GUEST_ES_BASE = 0x6806;
@@ -125,15 +131,15 @@ constexpr uint64_t VM_INSTRUCTION_ERROR = 0x4400;
 
 class VMX {
 public:
-    static bool is_enabled();
-    static bool enable();
-    static bool check_feature_control();
-    static bool test_vmx();
-    
+  static bool is_enabled();
+  static bool enable();
+  static bool check_feature_control();
+  static bool test_vmx();
+
 private:
-    static uint64_t read_msr(uint32_t msr);
-    static void write_msr(uint32_t msr, uint64_t value);
-    static void check_mtrr_config();
+  static uint64_t read_msr(uint32_t msr);
+  static void write_msr(uint32_t msr, uint64_t value);
+  static void check_mtrr_config();
 };
 
 #endif // VMX_H

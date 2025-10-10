@@ -767,22 +767,32 @@ static bool setup_vmcs() {
   // Bit 0 (PE): Protection Enable (1=protected mode, 0=real mode)
   // Bit 4 (ET): Extension Type (always 1 on modern CPUs)
   // Bit 5 (NE): Numeric Error (1=native FPU error reporting)
+  // Bit 29 (NW): Not Write-through (must match CD)
+  // Bit 30 (CD): Cache Disable (must match NW)
   // Bit 31 (PG): Paging (0=disabled)
   uint64_t guest_cr0_fixed0 = read_msr(IA32_VMX_CR0_FIXED0);
   uint64_t guest_cr0_fixed1 = read_msr(IA32_VMX_CR0_FIXED1);
   uint64_t guest_cr0;
 
   if (unrestricted_guest_supported) {
-    // Real mode: Start with PE=0, allow fixed bits to be applied carefully
-    guest_cr0 = 0x00000030; // ET + NE (real mode: PE=0, PG=0)
+    // Real mode: PE=0, PG=0, but must satisfy fixed bits
+    // Start with minimum required bits from fixed0
+    guest_cr0 = guest_cr0_fixed0;
 
-    // For unrestricted guest, we can clear PE and PG from fixed0 requirement
-    // This allows real mode even if the CPU normally requires these bits
-    uint64_t set_mask = guest_cr0_fixed0;
-    set_mask &=
-        ~((1ULL << 0) |
-          (1ULL << 31)); // Clear PE (bit 0) and PG (bit 31) from force-set
-    guest_cr0 = (guest_cr0 | set_mask) & guest_cr0_fixed1;
+    // For unrestricted guest, PE and PG can be 0 even if in fixed0
+    // Clear them explicitly
+    guest_cr0 &= ~((1ULL << 0) | (1ULL << 31)); // Clear PE and PG
+
+    // Set required bits for real mode operation
+    guest_cr0 |= (1ULL << 4); // ET (Extension Type) - always 1 on modern CPUs
+    guest_cr0 |= (1ULL << 5); // NE (Numeric Error) - native FPU error reporting
+
+    // Ensure NW and CD have same value (both 0 for WB caching)
+    // This is required by Intel SDM Vol 3C, Section 26.3.1.1
+    guest_cr0 &= ~((1ULL << 29) | (1ULL << 30)); // Clear both NW and CD
+
+    // Apply fixed1 mask (clear bits that must be 0)
+    guest_cr0 &= guest_cr0_fixed1;
   } else {
     // Protected mode: PE must be 1
     guest_cr0 = 0x00000031; // PE + ET + NE (protected mode: PE=1, PG=0)
@@ -854,6 +864,18 @@ static bool setup_vmcs() {
 
   // VMCS link pointer - set to ~0ULL for no shadowing
   if (!vmcs_write(VMCS_LINK_POINTER, ~0ULL))
+    return false;
+
+  // Guest activity state (0 = Active)
+  if (!vmcs_write(GUEST_ACTIVITY_STATE, 0))
+    return false;
+
+  // Guest interruptibility state (0 = no blocking)
+  if (!vmcs_write(GUEST_INTERRUPTIBILITY_STATE, 0))
+    return false;
+
+  // Guest pending debug exceptions (0 = none)
+  if (!vmcs_write(GUEST_PENDING_DBG_EXCEPTIONS, 0))
     return false;
 
   // Host state
@@ -1121,11 +1143,55 @@ extern "C" void vm_exit_handler() {
 }
 
 // ============================================================================
+// VMCS Field Dump Function (for debugging)
+// ============================================================================
+
+static void dump_vmcs_fields() {
+  vga.puts("\n  Dumping critical VMCS fields:\n");
+  serial.puts("\n  Dumping critical VMCS fields:\n");
+
+  struct FieldInfo {
+    uint64_t encoding;
+    const char *name;
+  };
+
+  FieldInfo fields[] = {{GUEST_CR0, "Guest CR0"},
+                        {GUEST_CR4, "Guest CR4"},
+                        {GUEST_RIP, "Guest RIP"},
+                        {GUEST_RSP, "Guest RSP"},
+                        {GUEST_RFLAGS, "Guest RFLAGS"},
+                        {HOST_CR0, "Host CR0"},
+                        {HOST_CR4, "Host CR4"},
+                        {HOST_RIP, "Host RIP"},
+                        {HOST_RSP, "Host RSP"},
+                        {VM_EXIT_CONTROLS, "VM-exit controls"},
+                        {VM_ENTRY_CONTROLS, "VM-entry controls"}};
+
+  for (int i = 0; i < 11; i++) {
+    uint64_t value = vmcs_read(fields[i].encoding);
+    vga.puts("    ");
+    vga.puts(fields[i].name);
+    vga.puts(": 0x");
+    vga.put_hex(value);
+    vga.puts("\n");
+    serial.puts("    ");
+    serial.puts(fields[i].name);
+    serial.puts(": 0x");
+    serial.put_hex64(value);
+    serial.puts("\n");
+  }
+}
+
+// ============================================================================
 // VM Launch Function
 // ============================================================================
 
 static bool vmx_launch() {
+  dump_vmcs_fields();
+
   vga.set_color(VGA::WHITE, VGA::BLACK);
+  vga.puts("\nAttempting VM launch...\n");
+  serial.puts("\nAttempting VM launch...\n");
   vga.puts("  Executing VMLAUNCH instruction...\n");
   serial.puts("  Executing VMLAUNCH instruction...\n");
 
@@ -1186,10 +1252,6 @@ bool VMX::test_vmx() {
   }
 
   // Attempt VM launch
-  vga.set_color(VGA::WHITE, VGA::BLACK);
-  vga.puts("\nAttempting VM launch...\n");
-  serial.puts("\nAttempting VM launch...\n");
-
   if (!vmx_launch()) {
     return false;
   }
