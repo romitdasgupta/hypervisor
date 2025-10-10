@@ -134,7 +134,7 @@ setup_page_tables:
 	movl $1024, %ecx
 	rep stosl
 
-	/* PML4[0] -> PDPT */
+	/*  PML4[0] -> PDPT */
 	movl $pdpt, %eax
 	orl $3, %eax			/* Present + Writable */
 	movl %eax, pml4
