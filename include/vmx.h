@@ -133,6 +133,7 @@ public:
 private:
     static uint64_t read_msr(uint32_t msr);
     static void write_msr(uint32_t msr, uint64_t value);
+    static void check_mtrr_config();
 };
 
 #endif // VMX_H

@@ -164,6 +164,33 @@ void VMX::write_msr(uint32_t msr, uint64_t value) {
     ::write_msr(msr, value);
 }
 
+void VMX::check_mtrr_config() {
+    // Check if MTRRs are supported
+    uint64_t mtrr_cap = read_msr(0xFE);
+    vga.puts("MTRR variable ranges: ");
+    vga.put_hex(mtrr_cap & 0xFF);
+    vga.puts("\n");
+    serial.puts("MTRR variable ranges: ");
+    serial.put_hex(mtrr_cap & 0xFF);
+    serial.puts("\n");
+
+    // Check default memory type
+    uint64_t def_type = read_msr(0x2FF);
+    bool mtrr_enabled = def_type & (1 << 11);
+    uint8_t default_type = def_type & 0xFF;
+
+    vga.puts("MTRR enabled: ");
+    vga.puts(mtrr_enabled ? "Yes\n" : "No\n");
+    vga.puts("Default type: 0x");
+    vga.put_hex(default_type);
+    vga.puts(default_type == 6 ? " (WB)\n" : "\n");
+    serial.puts("MTRR enabled: ");
+    serial.puts(mtrr_enabled ? "Yes\n" : "No\n");
+    serial.puts("Default type: 0x");
+    serial.put_hex(default_type);
+    serial.puts(default_type == 6 ? " (WB)\n" : "\n");
+}
+
 bool VMX::check_feature_control() {
     vga.set_color(VGA::WHITE, VGA::BLACK);
     vga.puts("  Reading IA32_FEATURE_CONTROL MSR...\n");
@@ -264,7 +291,13 @@ bool VMX::enable() {
     vga.puts("    CPUID VMX support confirmed\n");
     serial.puts("    CPUID VMX support confirmed\n");
 
-    // Step 2: Read IA32_VMX_BASIC to get VMCS revision ID
+    // Step 2: Check MTRR configuration (diagnostic)
+    vga.set_color(VGA::WHITE, VGA::BLACK);
+    vga.puts("  Checking MTRR configuration...\n");
+    serial.puts("  Checking MTRR configuration...\n");
+    check_mtrr_config();
+
+    // Step 3: Read IA32_VMX_BASIC to get VMCS revision ID
     // (Feature control already checked by caller)
     vga.set_color(VGA::WHITE, VGA::BLACK);
     vga.puts("  Reading IA32_VMX_BASIC MSR...\n");
@@ -280,7 +313,7 @@ bool VMX::enable() {
     vga.puts("\n");
     serial.puts("\n");
 
-    // Step 3: Adjust CR0
+    // Step 4: Adjust CR0
     vga.set_color(VGA::WHITE, VGA::BLACK);
     vga.puts("  Adjusting CR0...\n");
     serial.puts("  Adjusting CR0...\n");
@@ -299,7 +332,7 @@ bool VMX::enable() {
     vga.puts("\n");
     serial.puts("\n");
 
-    // Step 4: Adjust CR4 and set VMXE bit
+    // Step 5: Adjust CR4 and set VMXE bit
     vga.set_color(VGA::WHITE, VGA::BLACK);
     vga.puts("  Adjusting CR4 and enabling VMXE...\n");
     serial.puts("  Adjusting CR4 and enabling VMXE...\n");
@@ -319,7 +352,7 @@ bool VMX::enable() {
     vga.puts("\n");
     serial.puts("\n");
 
-    // Step 5: Initialize VMXON region
+    // Step 6: Initialize VMXON region
     vga.set_color(VGA::WHITE, VGA::BLACK);
     vga.puts("  Initializing VMXON region...\n");
     serial.puts("  Initializing VMXON region...\n");
@@ -340,7 +373,7 @@ bool VMX::enable() {
     vga.puts("\n");
     serial.puts("\n");
 
-    // Step 6: Execute VMXON instruction
+    // Step 7: Execute VMXON instruction
     vga.set_color(VGA::WHITE, VGA::BLACK);
     vga.puts("  Executing VMXON instruction...\n");
     serial.puts("  Executing VMXON instruction...\n");
@@ -521,18 +554,27 @@ static bool setup_vmcs() {
     // Guest RFLAGS (bit 1 must be 1)
     if (!vmcs_write(GUEST_RFLAGS, 0x2)) return false;
 
-    // Guest CR0 - Real-mode compatible with ET=1, NE=1, caches enabled
-    // 0x00000030 = ET (bit 4) + NE (bit 5)
+    // Guest CR0 - Must respect VMX fixed bits
+    // Start with desired bits: ET (bit 4) + NE (bit 5) for real mode
     // PE=0 (real mode), PG=0 (no paging), CD=0, NW=0 (caches enabled)
-    // See Intel SDM Vol 3C "Checks on Guest Control Registers, Debug Registers, and MSRs"
-    if (!vmcs_write(GUEST_CR0, 0x00000030)) return false;
+    // Apply VMX fixed bits to ensure compliance
+    uint64_t guest_cr0_fixed0 = read_msr(IA32_VMX_CR0_FIXED0);
+    uint64_t guest_cr0_fixed1 = read_msr(IA32_VMX_CR0_FIXED1);
+    uint64_t guest_cr0 = 0x00000030;  // ET + NE
+    guest_cr0 = (guest_cr0 | guest_cr0_fixed0) & guest_cr0_fixed1;
+    if (!vmcs_write(GUEST_CR0, guest_cr0)) return false;
 
     // Guest CR3
     if (!vmcs_write(GUEST_CR3, 0)) return false;
 
-    // Guest CR4 - No features enabled (VMXE must NOT be set in guest)
+    // Guest CR4 - Must respect VMX fixed bits (VMXE must NOT be set in guest)
     // See Intel SDM Vol 3C "Checks on Guest Control Registers, Debug Registers, and MSRs"
-    if (!vmcs_write(GUEST_CR4, 0)) return false;
+    uint64_t guest_cr4_fixed0 = read_msr(IA32_VMX_CR4_FIXED0);
+    uint64_t guest_cr4_fixed1 = read_msr(IA32_VMX_CR4_FIXED1);
+    uint64_t guest_cr4 = 0;  // Start with no features enabled
+    guest_cr4 = (guest_cr4 | guest_cr4_fixed0) & guest_cr4_fixed1;
+    guest_cr4 &= ~(1ULL << 13);  // Ensure VMXE (bit 13) is clear for guest
+    if (!vmcs_write(GUEST_CR4, guest_cr4)) return false;
 
     // VMCS link pointer - set to ~0ULL for no shadowing
     if (!vmcs_write(VMCS_LINK_POINTER, ~0ULL)) return false;
