@@ -118,12 +118,21 @@ no_long_mode_support:
 
 setup_page_tables:
 	/* Clear page tables */
+	# Zero PML4
 	movl $pml4, %edi
-	movl %edi, %cr3
 	xorl %eax, %eax
-	movl $4096, %ecx
+	movl $1024, %ecx
 	rep stosl
-	movl %cr3, %edi
+
+	# Zero PDPT
+	movl $pdpt, %edi
+	movl $1024, %ecx
+	rep stosl
+
+	# Zero PDT
+	movl $pdt, %edi
+	movl $1024, %ecx
+	rep stosl
 
 	/* PML4[0] -> PDPT */
 	movl $pdpt, %eax
@@ -166,13 +175,43 @@ long_mode_start:
     movw %ax, %gs
     movw %ax, %ss
 
-    /* Clear BSS section  */
-    cld                     /* Good practice before rep stosx */
+    /* Enable SSE */
+    movq %cr0, %rax
+    orq $0x2, %rax      /* Set CR0.MP */
+    andq $~0x4, %rax    /* Clear CR0.EM */
+    movq %rax, %cr0
+
+    movq %cr4, %rax
+    orq $0x600, %rax    /* Set CR4.OSFXSR and CR4.OSXMMEXCPT */
+    movq %rax, %cr4
+
+    /* Clear BSS with SSE */
+    cld
     movq $_bss_start, %rdi
     movq $_bss_end, %rcx
-    subq %rdi, %rcx
+    subq %rdi, %rcx          /* rcx = total bytes */
+
+    pxor %xmm0, %xmm0        /* Zero XMM0 */
+
+    movq %rcx, %rax
+    shrq $4, %rax            /* rax = number of 16-byte blocks */
+    testq %rax, %rax
+    jz .Lbss_remainder
+
+.Lbss_loop:
+    movdqa %xmm0, (%rdi)
+    addq $16, %rdi
+    decq %rax
+    jnz .Lbss_loop
+
+.Lbss_remainder:
+    andq $15, %rcx           /* rcx = remainder bytes */
+    testq %rcx, %rcx
+    jz .Lbss_done
     xorq %rax, %rax
     rep stosb
+
+.Lbss_done:
 
 
     /* Restore multiboot info (pop as 32-bit, extend to 64-bit) */
