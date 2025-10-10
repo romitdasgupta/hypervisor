@@ -84,6 +84,10 @@ constexpr uint64_t GUEST_CR0 = 0x6800;
 constexpr uint64_t GUEST_CR3 = 0x6802;
 constexpr uint64_t GUEST_CR4 = 0x6804;
 
+// Guest MSRs (64-bit)
+constexpr uint64_t GUEST_IA32_EFER = 0x2806;
+constexpr uint64_t GUEST_IA32_PAT = 0x2804;
+
 // Host state fields - 16-bit selectors
 constexpr uint64_t HOST_ES_SELECTOR = 0x0C00;
 constexpr uint64_t HOST_CS_SELECTOR = 0x0C02;

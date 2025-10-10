@@ -540,6 +540,13 @@ static bool setup_vmcs() {
     uint32_t procbased2_must_be_one = ~procbased2_allowed0;
     uint32_t procbased2_must_be_zero = ~procbased2_allowed1;
 
+    vga.puts("    Secondary controls must-be-one: 0x");
+    serial.puts("    Secondary controls must-be-one: 0x");
+    vga.put_hex(procbased2_must_be_one);
+    serial.put_hex64(procbased2_must_be_one);
+    vga.puts("\n");
+    serial.puts("\n");
+
     // Check if unrestricted guest is supported (bit 7 of allowed1)
     unrestricted_guest_supported = (procbased2_allowed1 & (1 << 7)) != 0;
 
@@ -580,11 +587,24 @@ static bool setup_vmcs() {
     uint32_t procbased2_controls =
         (procbased2_desired | procbased2_must_be_one) &
         ~procbased2_must_be_zero;
+
+    vga.puts("    Secondary controls (actual): 0x");
+    serial.puts("    Secondary controls (actual): 0x");
+    vga.put_hex(procbased2_controls);
+    serial.put_hex64(procbased2_controls);
+    vga.puts("\n");
+    serial.puts("\n");
+
     if (!vmcs_write(SECONDARY_VM_EXEC_CONTROL, procbased2_controls))
       return false;
 
     // Track if we actually enabled unrestricted guest
     unrestricted_guest_enabled = (procbased2_controls & (1 << 7)) != 0;
+
+    vga.puts("    Unrestricted guest enabled: ");
+    serial.puts("    Unrestricted guest enabled: ");
+    vga.puts(unrestricted_guest_enabled ? "YES\n" : "NO\n");
+    serial.puts(unrestricted_guest_enabled ? "YES\n" : "NO\n");
   } else {
     vga.set_color(VGA::LIGHT_CYAN, VGA::BLACK);
     vga.puts("    Secondary controls not available, skipping configuration\n");
@@ -906,6 +926,15 @@ static bool setup_vmcs() {
 
   // Guest pending debug exceptions (0 = none)
   if (!vmcs_write(GUEST_PENDING_DBG_EXCEPTIONS, 0))
+    return false;
+
+  // Guest MSRs (required if VM-entry controls have MSR-load bits set)
+  // IA32_PAT: Default to write-back caching (0x0606060606060606)
+  if (!vmcs_write(GUEST_IA32_PAT, 0x0606060606060606ULL))
+    return false;
+
+  // IA32_EFER: Set LME=0, LMA=0 for 32-bit protected mode
+  if (!vmcs_write(GUEST_IA32_EFER, 0))
     return false;
 
   // Host state
