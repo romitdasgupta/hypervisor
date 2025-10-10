@@ -124,6 +124,9 @@ constexpr uint64_t PROC_BASED_VM_EXEC_CONTROL = 0x4002;
 constexpr uint64_t EXCEPTION_BITMAP = 0x4004;
 constexpr uint64_t SECONDARY_VM_EXEC_CONTROL = 0x401E;
 
+// EPT pointer (64-bit)
+constexpr uint64_t EPT_POINTER = 0x201A;
+
 // VMCS link pointer
 constexpr uint64_t VMCS_LINK_POINTER = 0x2800;
 

@@ -103,6 +103,15 @@ alignas(4096)
 // Guest stack can remain in normal sections
 alignas(4096) static uint8_t guest_stack[8192];
 
+// EPT page tables - identity map first 1GB of physical memory
+// Using 2MB pages for simplicity (PML4 -> PDPT -> PD with 2MB pages)
+alignas(4096)
+    __attribute__((section(".vmx_regions"))) static uint64_t ept_pml4[512];
+alignas(4096)
+    __attribute__((section(".vmx_regions"))) static uint64_t ept_pdpt[512];
+alignas(4096)
+    __attribute__((section(".vmx_regions"))) static uint64_t ept_pd[512];
+
 static bool vmx_enabled = false;
 static uint32_t vmcs_revision_id = 0;
 
@@ -110,6 +119,7 @@ static uint32_t vmcs_revision_id = 0;
 // Forward Declarations
 // ============================================================================
 
+static bool ept_init();
 static bool vmcs_init();
 static bool setup_vmcs();
 static bool vmx_launch();
@@ -362,6 +372,59 @@ bool VMX::enable() {
 }
 
 // ============================================================================
+// EPT Initialization
+// ============================================================================
+
+static bool ept_init() {
+  vga.set_color(VGA::WHITE, VGA::BLACK);
+  vga.puts("  Initializing EPT (Extended Page Tables)...\n");
+  serial.puts("  Initializing EPT (Extended Page Tables)...\n");
+
+  // Clear all EPT tables
+  for (int i = 0; i < 512; i++) {
+    ept_pml4[i] = 0;
+    ept_pdpt[i] = 0;
+    ept_pd[i] = 0;
+  }
+
+  // Set up PML4[0] to point to PDPT
+  // Bits 2:0 = 0x7 (Read, Write, Execute)
+  // Bits 51:12 = Physical address of PDPT
+  uint64_t pdpt_addr = (uint64_t)ept_pdpt;
+  ept_pml4[0] = pdpt_addr | 0x7;
+
+  // Set up PDPT[0] to point to PD
+  uint64_t pd_addr = (uint64_t)ept_pd;
+  ept_pdpt[0] = pd_addr | 0x7;
+
+  // Set up PD entries to map first 1GB with 2MB pages (identity mapping)
+  // 1GB = 512 * 2MB, so fill all 512 entries
+  for (int i = 0; i < 512; i++) {
+    // Physical address = i * 2MB (must be 2MB-aligned)
+    uint64_t phys_addr = (uint64_t)i * 0x200000ULL; // 2MB
+    // Bits 2:0 = 0x7 (Read, Write, Execute)
+    // Bit 7 = 0x80 (Page size = 2MB)
+    // Bits 51:21 = Physical address (2MB-aligned)
+    // Mask to ensure only valid address bits (bits 51:21 for 2MB pages)
+    ept_pd[i] = (phys_addr & 0x000FFFFFFFFFE00000ULL) | 0x87;
+  }
+
+  vga.puts("    EPT PML4 at: 0x");
+  serial.puts("    EPT PML4 at: 0x");
+  vga.put_hex((uint64_t)ept_pml4);
+  serial.put_hex64((uint64_t)ept_pml4);
+  vga.puts("\n");
+  serial.puts("\n");
+
+  vga.set_color(VGA::LIGHT_GREEN, VGA::BLACK);
+  vga.puts("    EPT initialized (1GB identity-mapped with 2MB pages)\n");
+  serial.puts("    EPT initialized (1GB identity-mapped with 2MB pages)\n");
+  vga.set_color(VGA::WHITE, VGA::BLACK);
+
+  return true;
+}
+
+// ============================================================================
 // VMCS Management Functions
 // ============================================================================
 
@@ -424,13 +487,36 @@ static bool vmcs_init() {
   vga.puts("\n");
   serial.puts("\n");
 
-  // Execute VMPTRLD instruction
-  vga.puts("  Executing VMPTRLD instruction...\n");
-  serial.puts("  Executing VMPTRLD instruction...\n");
-
   uint64_t vmcs_physical_addr = (uint64_t)vmcs_region; // Identity mapping
   uint8_t error = 0;
 
+  // Execute VMCLEAR instruction (initializes VMCS to clear state)
+  vga.puts("  Executing VMCLEAR instruction...\n");
+  serial.puts("  Executing VMCLEAR instruction...\n");
+
+  asm volatile("vmclear (%1)\n\t"
+               "setna %0"
+               : "=r"(error)
+               : "r"(&vmcs_physical_addr)
+               : "cc", "memory");
+
+  if (error) {
+    vga.set_color(VGA::LIGHT_RED, VGA::BLACK);
+    vga.puts("    ERROR: VMCLEAR instruction failed!\n");
+    serial.puts("    ERROR: VMCLEAR instruction failed!\n");
+    return false;
+  }
+
+  vga.set_color(VGA::LIGHT_GREEN, VGA::BLACK);
+  vga.puts("    VMCLEAR executed successfully!\n");
+  serial.puts("    VMCLEAR executed successfully!\n");
+  vga.set_color(VGA::WHITE, VGA::BLACK);
+
+  // Execute VMPTRLD instruction (loads VMCS pointer)
+  vga.puts("  Executing VMPTRLD instruction...\n");
+  serial.puts("  Executing VMPTRLD instruction...\n");
+
+  error = 0;
   asm volatile("vmptrld (%1)\n\t"
                "setna %0"
                : "=r"(error)
@@ -615,6 +701,26 @@ static bool setup_vmcs() {
 
   if (!vmcs_write(EXCEPTION_BITMAP, 0))
     return false;
+
+  // EPT Pointer (if unrestricted guest is enabled, EPT must also be enabled)
+  if (unrestricted_guest_enabled) {
+    // EPT is enabled, configure EPT pointer
+    // Bits 2:0 = 6 (Write-back memory type)
+    // Bits 5:3 = 3 (EPT page walk length = 4, so 4-1=3)
+    // Bits 51:12 = Physical address of EPT PML4 table
+    uint64_t ept_pml4_addr = (uint64_t)ept_pml4;
+    uint64_t eptp = (ept_pml4_addr & ~0xFFFULL) | (3ULL << 3) | 6ULL;
+
+    vga.puts("    Setting EPT pointer: 0x");
+    serial.puts("    Setting EPT pointer: 0x");
+    vga.put_hex(eptp);
+    serial.put_hex64(eptp);
+    vga.puts("\n");
+    serial.puts("\n");
+
+    if (!vmcs_write(EPT_POINTER, eptp))
+      return false;
+  }
 
   // ========================================================================
   // PHASE 2: Announce Guest Mode Configuration
@@ -1313,6 +1419,14 @@ bool VMX::test_vmx() {
   serial.puts("\n================================\n");
   serial.puts("VMX Test: VMCS Init & VM Launch\n");
   serial.puts("================================\n");
+
+  // Initialize EPT (Extended Page Tables)
+  if (!ept_init()) {
+    vga.set_color(VGA::LIGHT_RED, VGA::BLACK);
+    vga.puts("ERROR: EPT initialization failed!\n");
+    serial.puts("ERROR: EPT initialization failed!\n");
+    return false;
+  }
 
   // Initialize VMCS
   if (!vmcs_init()) {
