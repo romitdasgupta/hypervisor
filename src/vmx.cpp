@@ -531,6 +531,7 @@ static bool setup_vmcs() {
 
   // Secondary processor-based controls and unrestricted guest detection
   bool unrestricted_guest_supported = false;
+  bool unrestricted_guest_enabled = false; // Track if we actually enable it
 
   if (secondary_controls_supported) {
     uint64_t procbased2_ctls = read_msr(IA32_VMX_PROCBASED_CTLS2);
@@ -560,10 +561,14 @@ static bool setup_vmcs() {
     vga.set_color(VGA::WHITE, VGA::BLACK);
 
     // Bit 7: Unrestricted guest (allows real-mode guest with invalid state)
+    // NOTE: Unrestricted guest requires EPT to be enabled (bit 1), which
+    // requires complex EPT page table setup. For now, disable unrestricted
+    // guest to force protected mode, which works without EPT.
     uint32_t procbased2_desired = 0;
-    if (unrestricted_guest_supported) {
-      procbased2_desired = (1 << 7);
-    }
+    // Temporarily disable unrestricted guest for minimal VM test
+    // if (unrestricted_guest_supported) {
+    //   procbased2_desired = (1 << 7);
+    // }
 
     vga.puts("    Secondary processor-based controls: 0x");
     serial.puts("    Secondary processor-based controls: 0x");
@@ -577,6 +582,9 @@ static bool setup_vmcs() {
         ~procbased2_must_be_zero;
     if (!vmcs_write(SECONDARY_VM_EXEC_CONTROL, procbased2_controls))
       return false;
+
+    // Track if we actually enabled unrestricted guest
+    unrestricted_guest_enabled = (procbased2_controls & (1 << 7)) != 0;
   } else {
     vga.set_color(VGA::LIGHT_CYAN, VGA::BLACK);
     vga.puts("    Secondary controls not available, skipping configuration\n");
@@ -593,16 +601,16 @@ static bool setup_vmcs() {
   // ========================================================================
 
   vga.set_color(VGA::LIGHT_CYAN, VGA::BLACK);
-  if (unrestricted_guest_supported) {
+  if (unrestricted_guest_enabled) {
     vga.puts(
-        "\n    Configuring REAL MODE guest (unrestricted guest available)\n");
+        "\n    Configuring REAL MODE guest (unrestricted guest enabled)\n");
     serial.puts(
-        "\n    Configuring REAL MODE guest (unrestricted guest available)\n");
+        "\n    Configuring REAL MODE guest (unrestricted guest enabled)\n");
   } else {
     vga.puts("\n    Configuring PROTECTED MODE guest (unrestricted guest not "
-             "available)\n");
+             "enabled)\n");
     serial.puts("\n    Configuring PROTECTED MODE guest (unrestricted guest "
-                "not available)\n");
+                "not enabled)\n");
   }
   vga.set_color(VGA::WHITE, VGA::BLACK);
 
@@ -616,8 +624,8 @@ static bool setup_vmcs() {
   // Guest segment selectors (mode-dependent)
   // Real mode: All selectors = 0
   // Protected mode: CS=0x08 (code), SS/DS/ES/FS/GS=0x10 (data)
-  uint16_t cs_selector = unrestricted_guest_supported ? 0 : 0x08;
-  uint16_t data_selector = unrestricted_guest_supported ? 0 : 0x10;
+  uint16_t cs_selector = unrestricted_guest_enabled ? 0 : 0x08;
+  uint16_t data_selector = unrestricted_guest_enabled ? 0 : 0x10;
 
   if (!vmcs_write(GUEST_CS_SELECTOR, cs_selector))
     return false;
@@ -736,7 +744,7 @@ static bool setup_vmcs() {
   // Protected mode: TR must be usable with valid TSS configuration
   //   - Use non-zero selector (0x20) to avoid VM-entry check violations
   //   - Access rights: 0x8B (Present, DPL=0, 32-bit TSS busy)
-  if (unrestricted_guest_supported) {
+  if (unrestricted_guest_enabled) {
     // Real mode: TR unusable
     if (!vmcs_write(GUEST_TR_SELECTOR, 0))
       return false;
@@ -796,7 +804,7 @@ static bool setup_vmcs() {
   uint64_t guest_cr0_fixed1 = read_msr(IA32_VMX_CR0_FIXED1);
   uint64_t guest_cr0;
 
-  if (unrestricted_guest_supported) {
+  if (unrestricted_guest_enabled) {
     // Real mode: PE=0, PG=0, but must satisfy fixed bits
     // Start with minimum required bits from fixed0
     guest_cr0 = guest_cr0_fixed0;
@@ -850,7 +858,7 @@ static bool setup_vmcs() {
   serial.puts(")\n");
 
   // Verify that the final CR0 matches our intended mode
-  if (unrestricted_guest_supported && pe_enabled) {
+  if (unrestricted_guest_enabled && pe_enabled) {
     vga.set_color(VGA::LIGHT_RED, VGA::BLACK);
     vga.puts("    WARNING: Unrestricted guest enabled but PE=1 (expected PE=0 "
              "for real mode)\n");
@@ -858,7 +866,7 @@ static bool setup_vmcs() {
                 "PE=0 for real mode)\n");
     vga.set_color(VGA::WHITE, VGA::BLACK);
   }
-  if (!unrestricted_guest_supported && !pe_enabled) {
+  if (!unrestricted_guest_enabled && !pe_enabled) {
     vga.set_color(VGA::LIGHT_RED, VGA::BLACK);
     vga.puts("    WARNING: Protected mode required but PE=0 (expected PE=1)\n");
     serial.puts(
